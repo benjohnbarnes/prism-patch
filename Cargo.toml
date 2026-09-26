@@ -20,7 +20,7 @@ glob = { version = "0.3", optional = true }
 im = "15.1"
 libmimalloc-sys = { version = "0.1", optional = true }
 logos = "0.16"
-marginalia = "0.2.1"
+marginalia = "0.3.0"
 num-bigint = "0.5.0"
 prism-common = { path = "crates/prism-common" }
 prism-core = { path = "crates/prism-core" }
@@ -66,7 +66,7 @@ blake3 = "1"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 insta = { version = "1.41", features = ["glob"] }
 prism-core = { path = "crates/prism-core", features = ["test-hooks"] }
-rstest = "0.26.1"
+rstest = "0.27.0"
 
 [[bench]]
 name = "compile"
