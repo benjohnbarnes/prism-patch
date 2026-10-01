@@ -391,6 +391,15 @@ impl Tc<'_> {
         }
     }
 
+    // Retire skolems without truncating: existentials minted in their scope
+    // stay, so constraints deferred past it (class defaulting) still find them.
+    // Escape into an outer existential is refused at solve time by
+    // `well_formed_before`, so there is nothing to re-check here.
+    pub(super) fn retire_unis(&mut self, ns: &[Sym]) {
+        self.ctx
+            .retain(|e| !matches!(e, Entry::Uni(w) if ns.contains(w)));
+    }
+
     pub(super) fn drop_row_uni(&mut self, n: Sym) {
         if let Some(i) = self
             .ctx
