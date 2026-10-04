@@ -681,7 +681,8 @@ pub enum Token {
 macro_rules! fixed_token_table {
     ($($variant:ident => $spelling:ident,)*) => {
         impl Token {
-            const fn text(&self) -> &'static str {
+            #[must_use]
+            pub const fn text(&self) -> &'static str {
                 match self {
                     $(Self::$variant => kw::$spelling,)*
                     // Value-carrying and layout-virtual tokens have no fixed
@@ -713,6 +714,22 @@ macro_rules! fixed_token_table {
         #[cfg(test)]
         fn fixed_tokens() -> Vec<(Token, &'static str)> {
             vec![$((Token::$variant, kw::$spelling)),*]
+        }
+
+        impl Token {
+            /// Whether `name` is the spelling of a fixed token that reads as a
+            /// word — a keyword — and so cannot be used as a name.
+            ///
+            /// Generated from the same table as `text`, so a keyword cannot be
+            /// reserved in one place and forgotten in the other. The alphabetic
+            /// test keeps the operators and delimiters sharing this table out of
+            /// the answer: `+` is fixed, but telling someone that `+` is a
+            /// reserved word would be nonsense.
+            #[must_use]
+            pub fn is_keyword(name: &str) -> bool {
+                name.starts_with(|c: char| c.is_ascii_alphabetic())
+                    && matches!(name, $(kw::$spelling)|*)
+            }
         }
     };
 }
