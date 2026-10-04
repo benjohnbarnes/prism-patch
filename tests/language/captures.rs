@@ -4,6 +4,7 @@
 // borrow, and effect-row facts the compiler already holds). Both are read-only
 // analyses, so these check their content and their determinism, not compilation.
 
+use indoc::indoc;
 use prism::{dump, with_prelude};
 
 fn cap(src: &str) -> String {
@@ -95,15 +96,17 @@ fn len(borrow xs : List(Int)) : Int =
     Nil => 0
     Cons(h, t) => 1 + len(t)
 
-fbip fn rev_go(xs : List(Int), acc : List(Int)) : List(Int) =
+fbip fn keep_int(x : Int) : Int = x
+
+fn rev_go(xs : List(Int), acc : List(Int)) : List(Int) =
   match xs of
     Nil => acc
     Cons(h, t) => rev_go(t, Cons(h, acc))
 
-fn sum_len(xs : List(Int)) : Int @ noalloc =
+fn first_or_zero(xs : List(Int)) : Int @ noalloc =
   match xs of
     Nil => 0
-    Cons(h, t) => h + sum_len(t)
+    Cons(h, _) => h
 
 fn shout(s : String) : Int =
   println(s)
@@ -111,7 +114,7 @@ fn shout(s : String) : Int =
 
 fn main() =
   println(len([1, 2, 3]))
-  println(sum_len(rev_go([1, 2, 3], Nil)))
+  println(keep_int(first_or_zero(rev_go([1, 2, 3], Nil))))
   shout(\"hi\")
 ";
 
@@ -136,9 +139,13 @@ fn usage_summary_columns_carry_each_fact() {
             && out.lines().next().unwrap().contains("tier="),
         "header must name the format version and tier:\n{out}"
     );
-    assert_eq!(line("sum_len").split('\t').nth(1), Some("yes"), "@ noalloc");
     assert_eq!(
-        line("rev_go").split('\t').nth(2),
+        line("first_or_zero").split('\t').nth(1),
+        Some("yes"),
+        "@ noalloc"
+    );
+    assert_eq!(
+        line("keep_int").split('\t').nth(2),
         Some("fbip"),
         "discipline"
     );
@@ -159,10 +166,10 @@ fn usage_summary_is_deterministic() {
 
 #[test]
 fn constrained_borrow_mask_includes_owned_dictionary_prefix() {
-    let out = usage(
-        "fn same(borrow x : a) : Bool given Eq(a) = x == x\n\
-         fn main() = println(same(1))\n",
-    );
+    let out = usage(indoc! {"
+            fn same(borrow x : a) : Bool given Eq(a) = x == x
+            fn main() = println(same(1))
+        "});
     let line = out
         .lines()
         .find(|line| line.split('\t').next() == Some("same"))

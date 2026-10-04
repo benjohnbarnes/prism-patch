@@ -3,13 +3,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use indoc::indoc;
+use prism::driver::effect_strategy_on;
 use prism::lineage::{
     record_fact, FactInput, FactLedger, FactOutcome, FactScope, QueryFact, QueryKind,
 };
 use prism::store::disk::Store;
 use prism::{
-    build_on_report, check_modules_on, with_prelude, CompilerSession, Config, NativeCacheStatus,
-    SessionStats,
+    build_on_report, check_modules_on, with_prelude, CompilerSession, Config, EffectStrategy,
+    NativeCacheStatus, SessionStats,
 };
 
 use crate::support::{assert_same_binary, require_cc, TempDir};
@@ -28,6 +30,68 @@ const RETIRED_EFFECT_PLAN_QUERIES: &str = "queries/effect-lowering-plan";
 const RETIRED_EFFECT_RESULT_QUERIES: &str = "queries/effect-lowering-result";
 const LINKED_NATIVE_RAW_QUERIES: &str = "queries/linked-native.raw";
 const LINKED_NATIVE_SEMANTIC_QUERIES: &str = "queries/linked-native.semantic";
+
+const REIFICATION_SOURCE: &str = indoc! {"
+    effect Peek
+      peek(Int) : Int
+
+    fn ask() : Int ! {Peek} = peek(4) + peek(7)
+
+    fn peeked() =
+      handle ask() with
+        peek(n) resume k => k(n) + k(n * 2)
+        return r => r
+
+    fn main() = println(peeked())
+"};
+const REIFICATION_OUTPUT: &[u8] = b"66\n";
+
+#[test]
+fn reification_cache_separates_both_toggle_orders_and_preserves_warm_hits() {
+    require_cc();
+    let src = with_prelude(REIFICATION_SOURCE);
+    let roots = [prism::Root::Embedded(prism::stdlib::STDLIB)];
+    for first_reify in [false, true] {
+        let tmp = TempDir::new("compiler-cache", &format!("reify-{first_reify}"));
+        let mut cfg = Config::default();
+        cfg.update_flags(|flags| {
+            flags.compiler_cache = true;
+            flags.store_path = Some(tmp.store_root());
+            flags.query_threads = SEQUENTIAL_QUERY_THREADS;
+            flags.quiet = true;
+        });
+        for reify in [first_reify, !first_reify] {
+            cfg.update_flags(|flags| flags.reify = reify);
+            let strategy = effect_strategy_on(&src, Path::new("."), &cfg).unwrap();
+            assert_eq!(
+                strategy == EffectStrategy::StateFusion,
+                reify,
+                "the cache witness must engage two lowering implementations"
+            );
+            let cold_bin = tmp.join(format!("cold-{reify}"));
+            let cold = build_on_report(&src, &roots, &cold_bin, &cfg).unwrap();
+            assert_eq!(
+                cold.cache,
+                NativeCacheStatus::Write,
+                "reify={reify} reused the other convention's linked binary"
+            );
+            let warm_bin = tmp.join(format!("warm-{reify}"));
+            let warm = build_on_report(&src, &roots, &warm_bin, &cfg).unwrap();
+            assert_eq!(warm.cache, NativeCacheStatus::Hit);
+            assert_same_binary(
+                "same reification setting, cold versus warm",
+                &fs::read(&cold_bin).unwrap(),
+                &fs::read(&warm_bin).unwrap(),
+            );
+            for bin in [&cold_bin, &warm_bin] {
+                let run = Command::new(bin).output().unwrap();
+                assert!(run.status.success(), "{bin:?}: {:?}", run.status);
+                assert_eq!(run.stdout, REIFICATION_OUTPUT);
+                assert!(run.stderr.is_empty(), "{bin:?}: {:?}", run.stderr);
+            }
+        }
+    }
+}
 
 // Linked-artifact keys are output-path independent, so a rebuild of the same
 // program is a whole-binary hit that never replays the backend queries. The
@@ -433,12 +497,12 @@ fn incremental_store_reaches_the_fresh_final_artifacts() {
     let fresh = TempDir::new("compiler-cache", "fresh-oracle");
     let parallel = TempDir::new("compiler-cache", "parallel-oracle");
     let roots = [prism::Root::Embedded(prism::stdlib::STDLIB)];
-    let base = with_prelude(
-        "fn dormant(x : Int) : Int = x * 2\n\
-         fn hidden(x : Int) : Int = x + 1\n\
-         fn api(x : Int) : Int = hidden(x)\n\
-         fn main() : Unit = println(api(41))\n",
-    );
+    let base = with_prelude(indoc! {"
+            fn dormant(x : Int) : Int = x * 2
+            fn hidden(x : Int) : Int = x + 1
+            fn api(x : Int) : Int = hidden(x)
+            fn main() : Unit = println(api(41))
+        "});
     let formatted = format!("{base}\n-- trivia-only edit\n");
     let private_edit = formatted.replace("x + 1", "x + 2");
     let interface_edit = private_edit
@@ -576,14 +640,14 @@ fn unreachable_scc_is_not_reused_after_it_becomes_reachable() {
     require_cc();
     let tmp = TempDir::new("compiler-cache", "scc-dead-to-live");
     let roots = [prism::Root::Embedded(prism::stdlib::STDLIB)];
-    let before = with_prelude(
-        "fn hidden() : Int = 41\n\
-         fn main() : Unit = println(0)\n",
-    );
-    let after = with_prelude(
-        "fn hidden() : Int = 41\n\
-         fn main() : Unit = println(hidden() + 1)\n",
-    );
+    let before = with_prelude(indoc! {"
+            fn hidden() : Int = 41
+            fn main() : Unit = println(0)
+        "});
+    let after = with_prelude(indoc! {"
+            fn hidden() : Int = 41
+            fn main() : Unit = println(hidden() + 1)
+        "});
     let mut cfg = Config::default();
     cfg.update_flags(|flags| flags.compiler_cache = true);
     cfg.update_flags(|flags| flags.store_path = Some(tmp.store_root()));
@@ -615,13 +679,13 @@ fn closure_body_edit_preserves_dispatch_shards() {
     // preserve. Each closure is instead fetched from an array cell at an index
     // only recursion can produce: the optimizer tracks no facts through mutable
     // cells, so the callee stays unknown and the shards this test watches exist.
-    let before = with_prelude(
-        "fn apply(f : (Int) -> Int, x : Int) = f(x)\n\
-         fn spin(n : Int) : Int = if n <= 0 then 0 else spin(n - 1)\n\
-         fn left() = apply(array_get(array_of_list(Cons(\\(x) -> x + 1, Nil)), spin(1)), 20)\n\
-         fn right() = apply(array_get(array_of_list(Cons(\\(x) -> x * 2, Nil)), spin(1)), 10)\n\
-         fn main() = println(left() + right())\n",
-    );
+    let before = with_prelude(indoc! {r"
+            fn apply(f : (Int) -> Int, x : Int) = f(x)
+            fn spin(n : Int) : Int = if n <= 0 then 0 else spin(n - 1)
+            fn left() = apply(array_get(array_of_list(Cons(\(x) -> x + 1, Nil)), spin(1)), 20)
+            fn right() = apply(array_get(array_of_list(Cons(\(x) -> x * 2, Nil)), spin(1)), 10)
+            fn main() = println(left() + right())
+        "});
     let after = before.replace("x + 1", "x + 2");
     let mut cfg = Config::default();
     cfg.update_flags(|flags| flags.compiler_cache = true);

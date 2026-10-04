@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs};
 
+use indoc::indoc;
+
 #[path = "support/seam.rs"]
 mod seam;
 
@@ -90,15 +92,15 @@ fn stdlib_shape_digests() {
 // INSTA_UPDATE=always cargo test --test snapshots.
 #[test]
 fn user_type_shape_digests() {
-    const SRC: &str = "\
-type Color = Red | Green | Blue
-type Point = P(Int, Int)
-type Shape = Circle(Int) | Rect(Int, Int)
-type Tree(a) = Leaf(a) | Branch(Tree(a), Tree(a))
-type Range = Range { lo: Int, hi: Int }
-effect Log
-  log(String) : Unit
-";
+    const SRC: &str = indoc! {"
+        type Color = Red | Green | Blue
+        type Point = P(Int, Int)
+        type Shape = Circle(Int) | Rect(Int, Int)
+        type Tree(a) = Leaf(a) | Branch(Tree(a), Tree(a))
+        type Range = Range { lo: Int, hi: Int }
+        effect Log
+          log(String) : Unit
+    "};
     let all = prism::shape_digests_of(&prism::with_prelude(SRC)).expect("shape digests");
     let names = ["Color", "Point", "Shape", "Tree", "Range", "Log"];
     let mut lines: Vec<String> = names
@@ -158,11 +160,11 @@ fn nontight_effect_annotation_warns() {
 // author's suggestion. A warning, never an error; behavior is unchanged.
 #[test]
 fn deprecated_annotation_warns() {
-    let src = prism::with_prelude(
-        "deprecated \"use `+` on Float\"\n\
-         fn old_add(x : Float, y : Float) : Float = plus(x, y)\n\
-         fn main() : Unit = println(show(old_add(1.0, 2.0)))\n",
-    );
+    let src = prism::with_prelude(indoc! {r#"
+            deprecated "use `+` on Float"
+            fn old_add(x : Float, y : Float) : Float = plus(x, y)
+            fn main() : Unit = println(show(old_add(1.0, 2.0)))
+        "#});
     let msgs: Vec<String> = prism::check(&src)
         .unwrap()
         .reports
@@ -270,19 +272,24 @@ fn fip_tail_recursion_lowers_to_a_loop() {
 }
 
 // The realistic payoff: a recursive accumulator (`rev_onto`, a tail call) and a
-// spine map (`bump`, tail-modulo-constructor) both accepted as `fip` and both
+// spine map (`bump`, tail-modulo-constructor) both
 // lowered to constant-stack loops. `rev_onto`'s self-call is a `musttail` jump;
 // `bump` is split into a `.trmc` hole-passing loop. Neither leaves a plain
 // self-call frame in its own body.
 #[cfg(feature = "native")]
 #[test]
-fn recursive_fip_examples_lower_to_loops() {
-    let src = prism::with_prelude(
-        "fip fn rev_onto(xs, acc) =\n  match xs of\n    Nil => acc\n    Cons(h, t) => rev_onto(t, Cons(h, acc))\n\
-         fip fn bump(xs) =\n  match xs of\n    Nil => Nil\n    Cons(h, t) => Cons(h + 1, bump(t))\n\
-         fn main() = println(sum(rev_onto([1,2,3], Nil)) + sum(bump([1,2,3])))",
-    );
-    let ir = prism::emit_ir(&src).expect("recursive accumulator/TRMC fip must be accepted");
+fn recursive_reuse_examples_lower_to_loops() {
+    let src = prism::with_prelude(indoc! {"
+            fn rev_onto(xs, acc) =
+              match xs of
+                Nil => acc
+                Cons(h, t) => rev_onto(t, Cons(h, acc))
+            fn bump(xs) =
+              match xs of
+                Nil => Nil
+                Cons(h, t) => Cons(h + 1, bump(t))
+            fn main() = println(sum(rev_onto([1,2,3], Nil)) + sum(bump([1,2,3])))"});
+    let ir = prism::emit_ir(&src).expect("recursive accumulator/TRMC examples must be accepted");
     let block = |sym: &str| {
         let start = ir
             .find(&format!("define i64 @{sym}("))
@@ -322,12 +329,18 @@ fn recursive_fip_examples_lower_to_loops() {
 #[cfg(feature = "native")]
 #[test]
 fn a_borrowable_parameter_never_costs_a_loop_its_tail_call() {
-    let src = prism::with_prelude(
-        "fn peek(s) =\n  match s of\n    Nil => 0\n    Cons(a, _b) => a\n\
-         fn scan(cur, xs) =\n  match xs of\n    Nil => peek(cur)\n    Cons(h, t) =>\n      \
-         let step = Cons(h + peek(cur), Nil)\n      scan(step, t)\n\
-         fn main() = println(scan([0], [1, 2, 3]))",
-    );
+    let src = prism::with_prelude(indoc! {"
+            fn peek(s) =
+              match s of
+                Nil => 0
+                Cons(a, _b) => a
+            fn scan(cur, xs) =
+              match xs of
+                Nil => peek(cur)
+                Cons(h, t) =>
+                  let step = Cons(h + peek(cur), Nil)
+                  scan(step, t)
+            fn main() = println(scan([0], [1, 2, 3]))"});
     let ir = prism::emit_ir(&src).expect("scan must compile");
     let scan = prism::codegen::native_symbol("scan");
     let start = ir
@@ -349,10 +362,13 @@ fn a_borrowable_parameter_never_costs_a_loop_its_tail_call() {
 // function value the set pass cannot see) surfaces in the caller's row.
 #[test]
 fn higher_order_effects_propagate() {
-    let src = "effect Exn\n  raise(Int) : Int\n\
-               fn apply(f, x) = f(x)\n\
-               fn boom(n) : Int ! {Exn} = raise(n)\n\
-               fn go(n) = apply(boom, n)\n";
+    let src = indoc! {"
+        effect Exn
+          raise(Int) : Int
+        fn apply(f, x) = f(x)
+        fn boom(n) : Int ! {Exn} = raise(n)
+        fn go(n) = apply(boom, n)
+    "};
     let checked = prism::check(prism::with_prelude(src).as_str()).unwrap();
     let apply = checked
         .defs
@@ -375,10 +391,16 @@ fn higher_order_effects_propagate() {
 // the effect arrived through an opaque function value.
 #[test]
 fn handler_discharges_higher_order_effect() {
-    let src = "effect Exn\n  raise(Int) : Int\n\
-               fn apply(f, x) = f(x)\n\
-               fn boom(n) : Int ! {Exn} = raise(n)\n\
-               fn attempt(n) =\n  handle apply(boom, n) with\n    raise(c) resume k => c\n    return r => r\n";
+    let src = indoc! {"
+        effect Exn
+          raise(Int) : Int
+        fn apply(f, x) = f(x)
+        fn boom(n) : Int ! {Exn} = raise(n)
+        fn attempt(n) =
+          handle apply(boom, n) with
+            raise(c) resume k => c
+            return r => r
+    "};
     let checked = prism::check(prism::with_prelude(src).as_str()).unwrap();
     let attempt = checked
         .defs
@@ -394,10 +416,13 @@ fn handler_discharges_higher_order_effect() {
 // value can no longer slip past a `borrow` parameter's purity requirement.
 #[test]
 fn borrow_rejects_laundered_effect() {
-    let src = "effect Exn\n  raise(Int) : Int\n\
-               fn apply(f, x) = f(x)\n\
-               fn boom(n) : Int ! {Exn} = raise(n)\n\
-               fn use_borrow(borrow x, n) = apply(boom, n) + x\n";
+    let src = indoc! {"
+        effect Exn
+          raise(Int) : Int
+        fn apply(f, x) = f(x)
+        fn boom(n) : Int ! {Exn} = raise(n)
+        fn use_borrow(borrow x, n) = apply(boom, n) + x
+    "};
     let err = prism::check(prism::with_prelude(src).as_str()).unwrap_err();
     let msg = format!("{err}");
     assert!(msg.contains("borrow") && msg.contains("Exn"), "got: {msg}");
@@ -442,6 +467,26 @@ fn exit_code_and_stdout() {
     assert_eq!(out.status.code(), Some(7));
 }
 
+// The cascade with the consolidated state route off. A fixture that has to
+// reach the free monad, or a rung the route reaches past, is asked of the
+// cascade: the route is offered every effectful program first and takes these
+// whole, which is the behaviour the default-flag gates below check.
+fn cascade_config() -> prism::Config {
+    let mut cfg = prism::Config::from_env();
+    cfg.update_flags(|flags| flags.consolidate = false);
+    cfg
+}
+
+fn cascade_dump(phase: &str, full: &str) -> String {
+    prism::dump_on(
+        phase,
+        full,
+        &prism::default_roots(Path::new(".")),
+        &cascade_config(),
+    )
+    .unwrap_or_else(|e| panic!("{phase} dumps under the cascade: {e}"))
+}
+
 // Local monadification partitions the lowered program: the escaping Log
 // component reifies into the free monad (EOp cells threaded by `ebind`), while
 // the unrelated stream pipeline stays fused (its producers thread evidence/state
@@ -451,7 +496,7 @@ fn exit_code_and_stdout() {
 fn local_monadification_partition() {
     let root = env!("CARGO_MANIFEST_DIR");
     let src = fs::read_to_string(format!("{root}/tests/cases/run/local_mono_combined.pr")).unwrap();
-    let lowered = prism::dump("lowered", &prism::with_prelude(&src)).unwrap();
+    let lowered = cascade_dump("lowered", &prism::with_prelude(&src));
     // Extract a top-level function body (from `fn name(` to the next `\nfn `).
     let fn_body = |name: &str| -> String {
         let start = lowered
@@ -508,8 +553,12 @@ fn local_monadification_partition() {
 #[test]
 fn free_monad_warning_is_opt_in_and_proportionate() {
     let root = env!("CARGO_MANIFEST_DIR");
+    // The warning is the cascade's, raised where a component reifies; the
+    // consolidated route takes this program whole and has nothing to warn
+    // about, so both spawns ask the cascade.
     let stderr = |case: &str| {
         let out = Command::new(env!("CARGO_BIN_EXE_prism"))
+            .env("PRISM_CONSOLIDATE", "0")
             .arg("run")
             .arg("--verbose")
             .arg(format!("{root}/{case}"))
@@ -519,6 +568,7 @@ fn free_monad_warning_is_opt_in_and_proportionate() {
     };
     // Off by default: the escaping program stays silent without `--verbose`.
     let quiet = Command::new(env!("CARGO_BIN_EXE_prism"))
+        .env("PRISM_CONSOLIDATE", "0")
         .arg("run")
         .arg(format!("{root}/tests/cases/run/local_mono_combined.pr"))
         .output()
@@ -715,8 +765,10 @@ fn print_show_consistency() {
         "(7, false)",
         "[(1, true), (2, false)]",
     ];
-    let prelude = "type Color = Red | Green | Blue deriving (Show)\n\
-                   type Tree = Leaf | Node(Tree, Int, Tree) deriving (Show)\n";
+    let prelude = indoc! {"
+        type Color = Red | Green | Blue deriving (Show)
+        type Tree = Leaf | Node(Tree, Int, Tree) deriving (Show)
+    "};
     for c in cases {
         let direct = run_out(&format!("{prelude}fn main() =\n  print({c})\n"));
         let shown = run_out(&format!("{prelude}fn main() =\n  print(show({c}))\n"));
@@ -782,8 +834,13 @@ fn optics_example() {
     let path = format!("{root}/examples/optics.pr");
     let out = interp_output(Path::new(&path));
     insta::assert_snapshot!("interpreter@optics.pr", out);
-    let src = "type A = A { x: Int }\ntype B = B { a: A }\n\
-               fn main() =\n  let b = B { a = A { x = 1 } }\n  print({ b | a.x = 2 }.a.x)\n";
+    let src = indoc! {"
+        type A = A { x: Int }
+        type B = B { a: A }
+        fn main() =
+          let b = B { a = A { x = 1 } }
+          print({ b | a.x = 2 }.a.x)
+    "};
     let fbip = prism::dump("fbip", src).unwrap();
     assert!(fbip.contains("reuse#"), "nested update path must reuse");
 }
@@ -797,8 +854,11 @@ fn lens_derive_example() {
     let path = format!("{root}/examples/lens_derive.pr");
     let out = interp_output(Path::new(&path));
     insta::assert_snapshot!("interpreter@lens_derive.pr", out);
-    let src = "type P = P { x: Int, y: Int } deriving (Lens)\n\
-               fn main() =\n  print(with_x(P { x = 1, y = 2 }, 9).x)\n";
+    let src = indoc! {"
+        type P = P { x: Int, y: Int } deriving (Lens)
+        fn main() =
+          print(with_x(P { x = 1, y = 2 }, 9).x)
+    "};
     let fbip = prism::dump("fbip", src).unwrap();
     assert!(fbip.contains("reuse#"), "derived setter must reuse");
 }
@@ -967,12 +1027,17 @@ fn effect_strategy_manifest_on_compiler_stack() {
 // renderer. This locks both that the fallback warns and the text naming the cause.
 #[test]
 fn free_monad_fallback_warns() {
-    let src = prism::with_prelude(
-        "effect Boom\n  boom(Int) : Int\n\
-         fn apply(f : (Int) -> Int ! {Boom}, x : Int) : Int ! {Boom} = f(x)\n\
-         fn risky(x) =\n  if x == 0 then boom(1) else x\n\
-         fn main() =\n  handle apply(risky, 0) with\n    boom(v) resume k => 0 - v\n    return r => r\n",
-    );
+    let src = prism::with_prelude(indoc! {"
+            effect Boom
+              boom(Int) : Int
+            fn apply(f : (Int) -> Int ! {Boom}, x : Int) : Int ! {Boom} = f(x)
+            fn risky(x) =
+              if x == 0 then boom(1) else x
+            fn main() =
+              handle apply(risky, 0) with
+                boom(v) resume k => 0 - v
+                return r => r
+        "});
     let warnings = prism::effect_warnings_full(&src, Path::new(".")).unwrap();
     insta::assert_snapshot!(warnings.join("\n"));
 }
@@ -994,15 +1059,21 @@ fn optimization_coverage() {
 }
 
 fn optimization_coverage_on_compiler_stack() {
+    // Breadth is a property of the cascade. The consolidated route is offered
+    // every effectful program first and takes most of them, so under the
+    // default flags one rung would witness the whole corpus and every other
+    // fast path would read as lost while its code is still live.
+    let cascade = cascade_config();
     let mut seen = std::collections::BTreeSet::new();
     for path in corpus_files() {
         let src = fs::read_to_string(&path).unwrap();
-        if let Ok(s) = prism::effect_strategy_full(&prism::with_prelude(&src), Path::new(".")) {
+        if let Ok(s) =
+            prism::effect_strategy_on(&prism::with_prelude(&src), Path::new("."), &cascade)
+        {
             seen.insert(s);
         }
     }
     for strategy in [
-        prism::EffectStrategy::Evidence,
         prism::EffectStrategy::StateFusion,
         prism::EffectStrategy::LocalPartial,
     ] {
@@ -1012,10 +1083,16 @@ fn optimization_coverage_on_compiler_stack() {
         );
     }
     // A basic imperative loop must compile to a loop, never the free monad.
-    let loop_prog = prism::with_prelude(
-        "fn run(n : Int) : Int =\n  var s := 0\n  var i := 0\n  while i < n do\n    \
-         i += 1\n    s += i\n  s\nfn main() = println(run(10))\n",
-    );
+    let loop_prog = prism::with_prelude(indoc! {"
+            fn run(n : Int) : Int =
+              var s := 0
+              var i := 0
+              while i < n do
+                i += 1
+                s += i
+              s
+            fn main() = println(run(10))
+        "});
     let strat = prism::effect_strategy_full(&loop_prog, Path::new(".")).unwrap();
     assert!(
         !matches!(

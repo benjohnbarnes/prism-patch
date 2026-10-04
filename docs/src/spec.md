@@ -1094,6 +1094,8 @@ fn main() =
 
 An `effect` declares a set of operations; each operation has an argument list and a result type. Performing an operation is an ordinary call to its name. A function's effect row is the unordered multiset of handler obligations its operations have not discharged, written `! {L, ...}` on its result type, with an optional row variable tail `! {L | r}`. Most rows contain each effect once; a repeated label records the extra handler depth introduced by [`mask`](#masking). A bare `!` is an explicit empty row. A row is inferred when omitted.
 
+An operation's own type variables, those of its signature that are not parameters of the effect, are quantified on the operation: each perform site instantiates them afresh, like a call to a polymorphic function, so `read(Key(a)) : a` may answer `Int` at one site and `String` at the next within a single `{Read}` row. Inside a handler clause they are rigid, so a clause treats the operation's values generically. An effect's own parameters belong to its label instead, and a row admits one instantiation of a label: a perform site finds its handler by effect name and position, never by type, so `Tag(Int)` and `Tag(String)` could not be told apart. Two instances of one parameterised effect at different types in one scope are written with [named handlers](#named-handlers).
+
 An operation's declaration carries a **grade**, the **resumption multiplicity** every handler clause for it must respect, written as the contextual prefix `never`, `once`, or `many`. The grades form a three-point **lattice** ordered `never < once < many`: `never` never resumes (the continuation is dropped), `once` resumes exactly once in tail position (no capture), and `many` may capture the continuation and resume any number of times. `many` is the default and the most general grade, so an operation declared with no prefix (or the explicit `many`) admits every handler; a grade word is written only to claim something stronger. The checking rule is one line: a handler clause's own multiplicity must be at most its operation's declared grade. A clause that resumes a `never` operation, or that captures or re-enters the continuation of a `once` operation, is rejected at that clause, its caret naming the operation and its declared grade; a clause more restrictive than the grade (handling a `many` operation tail-resumptively, say) is always allowed. The grade is a static, checked fact only: it constrains which handlers typecheck and lets the compiler keep an unrelated in-place `var` loop on its fast lowering when some other component resumes multishot, but it never changes the observable behavior of an accepted program.
 
 | Prefix  | Grade | Resumption                                                     |
@@ -1151,7 +1153,9 @@ k : (q) -> answer ! residual(handle c with partial h)
 
 The answer type is shared by the return clause and every operation clause. When the return clause is omitted, the answer type is the handled body's own result type rather than a fresh variable, so a handler that names no return can never be generalized into a scheme its clauses do not support. The residual row is the least row satisfying the body-subtraction rule and all clause-effect constraints; this is the same open-row unification used by higher-order handlers, not a default to the empty row.
 
-Forwarding is semantic, not a lowering choice. The interpreter, evidence-passing lowering, and free-monad lowering must emit the same canonical observation trace. In particular, operation emission, outward handling, resumption, and the return clause occur in that order in every tier.
+Forwarding is semantic, not a lowering choice. The interpreter, the value-threading lowering, and free-monad lowering must emit the same canonical observation trace. In particular, operation emission, outward handling, resumption, and the return clause occur in that order in every tier.
+
+That agreement is over the observation trace. Exhausting a host resource, the native stack included, is not an event the trace records and not a behavior this document defines, so no tier is asked to carry a step budget or to agree with another about one. What every tier carries instead is a refusal. A resumption in tail position turns a handled loop into a driver loop, so a lowering that would run one hop of such a loop on the native stack must decline the program and leave it to a lowering that bounces the hop, rather than compile a loop that runs out of stack. Whether a program terminates is a property of the program and not of the tier chosen for it. A resumption anywhere but the tail has work waiting after it and holds a frame in every tier alike, exactly as a non-tail-recursive function does, so nothing is promised there beyond what an ordinary recursion promises.
 
 ### 8.2 Observability {#observability}
 
@@ -1634,17 +1638,18 @@ The facts split into two families by where they are written. The declaration cla
 
 ### 9.2 noalloc {#coeffect-noalloc}
 
-The allocation fact on its own: this call, and everything it reaches, computes its result without taking a fresh heap cell. The check walks the body after [reuse lowering](./compiler.md#reference-counting-and-fbip-reuse) at a budget of zero, after the compiler has already spent every reuse opportunity, so a constructor rebuilt through a `reuse` token costs nothing while one built fresh is a witness, and carving a cell from an arena counts too: `alloc` is cheaper than the heap, not free. The claim composes with an effect row and with `given` constraints (`: T @ noalloc ! {IO}`); a function may be `@ noalloc` and still perform `IO`, because the effect row says what is observable while the certificate says the call tree does not allocate.
+The allocation fact on its own: this call, and everything it reaches, computes its result without taking a fresh heap cell. The check walks the body after [reuse lowering](./compiler.md#reference-counting-and-fbip-reuse) at a budget of zero, after the compiler has already spent every reuse opportunity, so a constructor costs one cell even through a `reuse` token: a shared input can leave the token empty, and carving a cell from an arena counts too: `alloc` is cheaper than the heap, not free. The claim composes with an effect row and with `given` constraints (`: T @ noalloc ! {IO}`); a function may be `@ noalloc` and still perform `IO`, because the effect row says what is observable while the certificate says the call tree does not allocate.
 
 ```prism
-fn gcd(a : Int, b : Int) : Int @ noalloc =
-  if b == 0 then
-    a
-  else
-    gcd(b, a % b)
+fn larger(a : Int, b : Int) : Int @ noalloc =
+  if a > b then a else b
 
-fn main() = println(gcd(48, 18))
+fn main() = println(larger(48, 18))
 ```
+
+A reuse token can be empty when its input cell is shared, so the certificate charges the fresh-allocation fallback. Handler installation and performed effects also require a bound on lowering-generated cells; without one, finite allocation claims are refused. These conservative checks do not disable runtime reuse or effect lowering.
+
+Boxed scalar literals count as allocations. Arithmetic on arbitrary-precision `Int` may allocate after overflow, and fixed-width and floating-point results can require fresh boxes. A runtime operation without a proven bound cannot satisfy `noalloc` or a finite `fip(n)`/`fbip(n)` budget, even if a particular input happens not to allocate.
 
 A body that allocates is rejected with the first witness sites named in evaluation order (E6076):
 
@@ -1704,15 +1709,12 @@ fn depth(n : Int) : Int @ bounded_stack =
 
 ### 9.5 fip and fbip {#coeffect-fip-fbip}
 
-The keyword forms of [Lorenzen et al. (2023)](bibliography.md#lorenzen-fp2-2023) are bundles of the declaration facts. `fbip` claims the allocation fact alone; `fip` claims all three, allocation plus `linear` plus `bounded_stack`, which together certify that the function runs fully in place: every cell it builds reuses one it just took apart, no owned input is duplicated, and the recursion lowers to a loop. Each fact closes over the call tree on its own, so an `fbip` caller may call either discipline while a `fip` caller needs linear callees (E6079).
+The keyword forms of [Lorenzen et al. (2023)](bibliography.md#lorenzen-fp2-2023) are bundles of the declaration facts. `fbip` claims the allocation fact alone; `fip` claims all three, allocation plus `linear` plus `bounded_stack`, which together certify that the function runs fully in place: no fresh cell is allocated, no owned input is duplicated, and recursion has bounded stack. Each fact closes over the call tree on its own, so an `fbip` caller may call either discipline while a `fip` caller needs linear callees (E6079).
 
 ```prism
-fip fn rev_onto(xs, acc) =
-  match xs of
-    Nil => acc
-    Cons(h, t) => rev_onto(t, Cons(h, acc))
+fip fn identity(x : Int) : Int = x
 
-fn main() = println(sum(rev_onto([1, 2, 3], Nil)))
+fn main() = println(identity(42))
 ```
 
 Both keywords take a grade: the bare form declares an allocation budget of zero per call, and a parenthesized grade allows that many fresh cells. The check charges every call the callee's own declared budget in full, recursive calls included, so the per-call figure holds over the whole dynamic extent; a callee with no zero-allocation certificate, or an indirect call through a function value, has no budget to charge and leaves the total unbounded (E6075).
@@ -2283,9 +2285,9 @@ The standalone `@ linear` claim checks only the ownership part of `fip`, over th
 
 The zero-allocation guarantee is the first checked [usage fact](#usage-and-resource-annotations): `@ noalloc`, written at the root of the return annotation. Read it as the result type with the allocation coeffect subtracted: the body and its whole call tree allocate no fresh cell, calling only allocation-free functions. It carries the same check as `fbip`, without the linearity and bounded-stack requirements `fip` adds. It composes with an effect row and with `given` constraints (`: T @ noalloc ! {IO}`), and interoperates with the keyword forms: an `@ noalloc` function may call `fip`, `fbip`, or `@ noalloc` functions.
 
-A failed certificate explains itself. The diagnostic lists the first three allocation witnesses in evaluation order, each a concrete reason with its name attached: a constructor built fresh outside `reuse` (by constructor name), a fresh tuple, a lambda materialized as a closure cell, a call to a function with no zero-allocation certificate (by callee name), an indirect call through a function value, or a primitive off the allocation-free list. A body with more sites than the bound reports the remainder as a trailing count (`and 2 more`), and the same witness detail backs the `fip` and `fbip` usage-check failures, so every discipline in the family points at its offending sites rather than restating the rule. The witnesses are read off the reuse-lowered core, after the compiler has already spent every reuse opportunity, so a reported allocation is one the optimizer could not eliminate, not folklore about the source text.
+A failed certificate explains itself. The diagnostic lists the first three allocation witnesses in evaluation order, each a concrete reason with its name attached: a constructor that can allocate, including the shared-input fallback of `reuse` (by constructor name), a fresh tuple, a lambda materialized as a closure cell, a call to a function with no zero-allocation certificate (by callee name), an indirect call through a function value, or a primitive off the allocation-free list. A body with more sites than the bound reports the remainder as a trailing count (`and 2 more`), and the same witness detail backs the `fip` and `fbip` usage-check failures, so every discipline in the family points at its offending sites rather than restating the rule. The witnesses are read off the reuse-lowered core, with runtime fallback paths included: reuse may avoid a cell for a unique input, but a shared input can still allocate.
 
-A region certifies by becoming a function of its own: hoist the expression, passing its free locals as parameters, and certify that function, so the identical whole-call-tree check covers exactly the region. `gcd` below certifies a whole function; `horner` certifies only its core.
+A region certifies by becoming a function of its own: hoist the expression, passing its free locals as parameters, and certify that function, so the identical whole-call-tree check covers exactly the region. `larger` below certifies the comparison region; `choose_scaled` performs potentially allocating arithmetic outside it.
 
 ```prism
 {{#include ../examples/no_alloc.pr}}
