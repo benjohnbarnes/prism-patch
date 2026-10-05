@@ -60,6 +60,17 @@ repos:
         files: ^runtime/(.*\.(c|h)|\.clang-tidy)$
         pass_filenames: false
 
+      # The scoreboard's size half is derived from the lexer, parser, AST and
+      # checker sources, and CI fails when the committed board drifts. Regenerate
+      # it whenever one of those files is staged; a rewritten board fails the
+      # commit once so it gets staged alongside the change.
+      - id: scoreboard
+        name: compaction scoreboard
+        language: system
+        entry: python3 scripts/scoreboard.py
+        files: ^(crates/prism-syntax/src/(lex/.*\.rs|grammar\.lalrpop|sugar\.rs|ast\.rs)|src/tc/.*\.rs|lib/std/Syntax/.*\.pr|packages/tc/src/(Tc|Bootstrap)\.pr|scripts/scoreboard\.py|docs/internal/SCOREBOARD\.md)$
+        pass_filenames: false
+
       # Heavy correctness moved to pre-push: fast commits, but the suite and the
       # cached parity/perf/snapshot gate still run locally before a push, catching
       # what CI would otherwise catch 20 minutes later. Install with
