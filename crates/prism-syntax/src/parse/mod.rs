@@ -301,12 +301,23 @@ fn from_lalrpop(
             )
         }
         UnrecognizedToken { token, expected } => {
-            let msg = format!(
-                "unexpected {} at {}, expected {}",
-                token.1,
-                map.at(token.0),
-                expected_list(expected)
-            );
+            // A keyword where a name belongs is a common and confusing mistake —
+            // `let stable = 1` — and "unexpected" reads as though the word were a
+            // typo. Say what is actually wrong instead.
+            let msg = if Token::is_keyword(token.1.text()) {
+                format!(
+                    "{} is a keyword, so it cannot be used as a name here ({})",
+                    token.1,
+                    map.at(token.0)
+                )
+            } else {
+                format!(
+                    "unexpected {} at {}, expected {}",
+                    token.1,
+                    map.at(token.0),
+                    expected_list(expected)
+                )
+            };
             ParseError::syntax(
                 Span::new(token.0, token.2),
                 msg,
@@ -319,6 +330,35 @@ fn from_lalrpop(
             Vec::new(),
         ),
         User { error: (span, msg) } => ParseError::syntax(*span, msg.clone(), Vec::new()),
+    }
+}
+
+#[cfg(test)]
+mod keyword_tests {
+    use super::parse;
+
+    // A keyword where a name belongs is a natural mistake — `let stable = 1` — and
+    // "unexpected" read as though the word were a typo, listing `(`, an identifier
+    // and a qual that the author never wanted. The message should name the actual
+    // problem instead.
+    #[test]
+    fn a_keyword_in_a_binding_position_names_itself() {
+        let err = parse("fn main() =\n  let stable = 1\n  stable\n").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("'stable' is a keyword"), "message was: {msg}");
+        assert!(
+            !msg.contains("unexpected"),
+            "message still says unexpected: {msg}"
+        );
+    }
+
+    // The old wording must survive for tokens that genuinely are unexpected, since
+    // it is the right thing to say about them.
+    #[test]
+    fn an_ordinary_unexpected_token_still_reads_as_unexpected() {
+        let err = parse("fn main() = 1 +\n").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unexpected"), "message was: {msg}");
     }
 }
 

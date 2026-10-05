@@ -24,7 +24,7 @@ compaction, above it is not.
 
 | component        | Rust raw | Rust code | Prism raw | Prism code | ratio |
 | ---------------- | -------: | --------: | --------: | ---------: | ----: |
-| lexer and layout |    1,546 |     1,230 |     1,684 |      1,234 |  1.00 |
+| lexer and layout |    1,563 |     1,238 |     1,684 |      1,234 |  1.00 |
 | parser           |    2,607 |     1,963 |     7,538 |      6,484 |  3.30 |
 | surface AST      |    2,092 |     1,483 |       354 |        199 |  0.13 |
 | syntax codecs    |     none |      none |     2,902 |      2,382 |   n/a |
