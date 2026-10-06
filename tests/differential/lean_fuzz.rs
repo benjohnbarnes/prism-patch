@@ -25,7 +25,9 @@ use crate::support::{in_shard, parallel_each, TempDir};
 // the seed is fixed, so a given count always generates the same programs.
 const DEFAULT_GENERATED_CASES: usize = 256;
 const SEED: u64 = 0x6c65_616e_5f66_757a;
-const SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
+// A stuck-process guard, not a speed bound: the first cases compile cold, one per
+// worker in parallel, and on a shared CI runner each takes close to 30s.
+const SUBPROCESS_TIMEOUT: Duration = Duration::from_mins(3);
 const _: () = assert!(DEFAULT_GENERATED_CASES > 0);
 
 fn generated_cases() -> usize {
@@ -164,10 +166,12 @@ fn command_failure(label: &str, output: &std::process::Output) -> String {
 
 fn dump_core_json(source_path: &Path) -> Result<String, String> {
     let mut command = Command::new(env!("CARGO_BIN_EXE_prism"));
+    // Every generated program is fresh source, so the cache only shares the
+    // prelude and stdlib work that all cases repeat byte for byte.
     command
         .args(["dump", "core-json"])
         .arg(source_path)
-        .env("PRISM_COMPILER_CACHE", "0");
+        .env("PRISM_COMPILER_CACHE", "1");
     let output = run_bounded("prism dump core-json", command, None)?;
     if !output.status.success() {
         return Err(command_failure("prism dump core-json", &output));
