@@ -1,8 +1,83 @@
 # Changelog
 
-## Unreleased
+## 0.24.0 - Lavender
 
-## 0.23.0
+- Language: `h :: t` is list cons in patterns and expressions, right associative, below `+`.
+- Language: `a </> b` joins paths through the prelude `PathJoin` class, left associative.
+- Stdlib: `Path` has `PathJoin`, `Semigroup`, and `Monoid` instances; `mempty()` is `.`.
+- Formatter: a negated or operator receiver of `.field` or `[i]` keeps its parentheses.
+- Formatter: `prism fmt` prints `Cons` and `Nil` patterns as `[]`, `[a, b]`, or `x :: rest`.
+- Language: handlers accept a `finally => body` cleanup clause, printed last by `prism fmt`.
+- Language: a handler without a `finally` clause keeps its Core digest and store bytes.
+- Interpreter: a `finally` clause runs once each time its handler is left, innermost first.
+- Interpreter: a suspended continuation that still owes a cleanup refuses to serialize.
+- Native builds: `finally` compiles natively with the interpreter's observations.
+- Native builds: an operation leaving a handler carries its pending cleanup to its catcher.
+- Native builds: a bracket that performs nothing lowers pure; programs without one are unchanged.
+- Native builds: state fusion honours `finally` when every abandoning clause performs nothing.
+- Stdlib: `Net` TCP helpers close their socket in a `finally` clause, even on `fail()` or cancel.
+- Stdlib: `Path` is a lexical path type: joining, normalization, and parent, name, and extension.
+- Stdlib: `Path` operations never touch the filesystem.
+- Stdlib: `Proc` runs a child process under a `Proc` capability: `command`, `exec`, `check`, `text`.
+- Stdlib: `Proc` takes capture limits, a deadline, an environment, input, and a working directory.
+- Stdlib: `Proc` answers the same `Outcome` on both tiers; replay serves it without spawning.
+- Stdlib: a replayable function may not perform `Proc`.
+- Stdlib: `Proc.collect_pipeline` runs a `Pipeline` under one deadline, every stage's status kept.
+- Stdlib: `check_last`, `check_all`, and `check_pipefail` decide which pipeline failures count.
+- Stdlib: `Shell` adds script helpers over `Proc` and `Path`.
+- Stdlib: `Shell.unsafe_shell` is the one way to hand a string to `/bin/sh`.
+- Typechecker: a handler around an unannotated thunk parameter discharges its labels from that row.
+- Stdlib: `optional`, `default`, `record`, `replay`, and `durable` name their action's effects.
+- Formatter: `prism fmt` moves an `import` written below other declarations to the module top.
+- Stdlib: `Teleport.MoveError` gains `Bracketed`, refusing a continuation that owes a cleanup.
+- Stdlib: a handler that carries `finally` and owes nothing teleports like any other.
+- Tooling: `prism dump occurrences` records local binders and their uses, keyed by binder offset.
+- Compiler: inferred borrow masks are checked on every build, even with `borrow-infer` off.
+- Native builds: the whole-program emitter checks its closure summary like the sharded backend.
+- Tooling: `prism dump occurrences` carries a `defs` table locating every definition's name.
+- Diagnostics: an error inside an imported module points into that module, not the prelude.
+- Library: `Error::origin` names the module an error was raised in, with its source.
+- Library: `prism::search_path` resolves a file's module roots and prelude as `prism check` does.
+- Library: manifest and package modules sit behind a `project` feature, without native codegen.
+- Diagnostics: hovers no longer print a label-free open row no caller can see.
+- Syntax: constructors, effect operations, and class methods carry the span of their name.
+- Syntax: the `surface-syntax` dump is `prism-surface-syntax-v2`; v1 documents still decode.
+- Parser: the self-hosted parser reproduces member name spans.
+- API: `prism::analyze` checks a source once and returns its program, type spans, and occurrences.
+- API: a front that collects hover types keeps its lints and warnings.
+- Tooling: `dump tier-explain` prints the shortest chain from `main` to each costing definition.
+- Testing: the tier equivalence gate counts shared work, so a tier that recomputes a value fails.
+- Testing: `Test.fail_with`, `expect`, `expect_equal`, and `expect_text` report structured failures.
+- Testing: a failing `expect_equal` shows expected and actual values, diffing multi-line ones.
+- Testing: `-- test: skip(reason)` and `-- test: tags(a, b)` pragmas, with `prism test --tag`.
+- Testing: `prism test --junit PATH` writes a deterministic JUnit XML report.
+- Testing: package tests assert through `expect` forms instead of hand-rolled equality checks.
+- Native builds: `Map(k, v)` constructor fields build natively, not only under `run` and `check`.
+- Diagnostics: names from other languages suggest the Prism spelling, such as `Maybe` for `Option`.
+- Diagnostics: parse errors name the reserved keyword they tripped on.
+- Portability: a `let` of a portable type, written or inferred, may be captured by `@ portable`.
+- Parser: the self-hosted parser accepts `fip(n)`, `@ bounded_stack`, and `@ linear`.
+- Parser: the self-hosted parser's end-of-input expected set matches the compiler's more often.
+- Formatter: `prism fmt --stdout FILE` prints the formatted source instead of rewriting the file.
+- Spectra: `spectra check` and `spectra build` take `--prism BIN` for every compiler step.
+- Native builds: a C compiler that rejects emitted IR gets a note naming both LLVM versions.
+- Native builds: the MLIR backend checks `musttail` calls; malformed continuation rows are errors.
+- Native builds: cached build outputs from another checkout can no longer poison a build.
+- Replay: `write_file` and `write_bytes` events digest the bytes written, not a re-read of the file.
+- Typechecker: an escaped skolem solution is an internal error in release builds, not a silent pass.
+- Store: a malformed content hash in an object, certificate, lock, or package log is refused.
+- Store: protocol format tags are validated types, checked when the crate compiles.
+- Store: readers refuse a malformed tag and tell a foreign format from another of its versions.
+- Packages: a lock row under a foreign hash scheme is refused before its hash is read.
+- Library: artifact identities take an `ArtifactBackend`, not a label; fingerprints are unchanged.
+- Library: `dump`, `dump_at`, and `dump_on` take a `DumpPhase`; `prism dump` lists every phase.
+- Library: record readers, replay codec, index diffs, pipelines, and `[flags]` return typed errors.
+- Library: those typed errors keep their messages and error codes.
+- Tooling: one `just accept` suffices after a standard library change.
+- Tooling: the parser oracle is pinned by content identity rather than by commit.
+- Tooling: the scoreboard publishes each crate's undocumented public item count.
+
+## 0.23.0 - Indigo
 
 - Effect lowering: the consolidated state route with reified continuations is now the default.
 - Effect lowering: unsupported shapes keep the legacy fallback; the evidence engine is retired.
@@ -27,7 +102,7 @@
 - Dependencies: incorporated the dependency updates from public main.
 - Tooling: artifact acceptance runs retain complete failure diagnostics.
 
-## 0.22.0
+## 0.22.0 - Ultramarine
 
 - Optimizer: added typed summaries for result shape, effects, allocation, captures, and cardinality.
 - Optimizer: list-to-array builders with proven cardinality allocate their destination once.
@@ -62,7 +137,7 @@
 - Tooling: one cold acceptance pass reseats artifacts, and a 60-program sentinel drives the fast gate.
 - Maintenance: removed the parser-generator experiment with its frozen corpus, manifest, and hooks.
 
-## 0.21.0
+## 0.21.0 - Lapis
 
 - Effect rows: multiset accounting preserves `mask` depth across calls and rejects insufficient handler stacks.
 - Typechecker: datatype arguments are invariant, preventing multiplicity widening; copy-on-write `Array` remains covariant.
@@ -82,7 +157,7 @@
 - Tail recursion: modulo-cons lowering now declines bodies observable through multishot resumptions.
 - Content addressing: recursive-group hashes are rename-stable, and shape encodings delimit every numeric field.
 
-## 0.20.0
+## 0.20.0 - Sapphire
 
 - Representations: one layout query decides storage, ABI, zero words, and ownership for every consumer.
 - Compiler contracts: phase doors, inference solves, and prompt facts now fail closed.
@@ -111,7 +186,7 @@
 - Store: every layer is sharded and bounds itself by entry count and bytes.
 - Store: collection reports what it reclaimed, and a runaway layer is retired wholesale.
 
-## 0.19.0
+## 0.19.0 - Cobalt
 
 - Lint: added `prism lint`, twelve Prism-written house rules with coded suppressions, JSON output, and an advisory mode.
 - Packages: manifests gained release metadata and typed SPDX licenses; `check --licenses` audits dependencies.
@@ -129,7 +204,7 @@
 - Example: added a second System F checker with ordered existential contexts and bidirectional subtyping.
 - Documentation: rebuilt the Python-first tutorial from data and effects through projects and identity.
 
-## 0.18.0
+## 0.18.0 - Azure
 
 - Code index: added `prism index`, a whole-program artifact of definitions and their edges, and the `/viewer/` page that browses by definition.
 - Toolchain: added prismup, a version manager shipped as a static binary with each release; the installer delegates to it.
@@ -149,7 +224,7 @@
 - Example: refactored System F onto one anchored solver route, ambient-state statements, and factored operator rules.
 - Documentation: folded optics, typed holes, and diagnostics into the spec, and package reference pages ship module sources so browser Run works.
 
-## 0.17.0
+## 0.17.0 - Cerulean
 
 - Effects: rewrote the `State`, `Writer`, and `Fresh` runners in a cell style the fast tiers accept, moving idiomatic State to the evidence tier.
 - Typechecker: fixed generic `var` cells silently losing polymorphism, so a cell over a signature variable now generalizes correctly.
@@ -168,7 +243,7 @@
 - Testing: pinned the tagged-immediate integer boundary across interpreter and native backends.
 - Packaging: fixed the macOS artifact linking against Homebrew's z3, which aborted on machines without the build host's brew tree.
 
-## 0.16.0
+## 0.16.0 - Aquamarine
 
 - Self-hosted parser: added `Syntax.Parse` for files and expressions, with generated type/pattern control and Rust as the oracle.
 - Parse diagnostics: added byte-exact spans, EOF/depth codes, and canonical expected-token sets.
@@ -187,7 +262,7 @@
 - Semantics: extended the unverified Typst sketch with Core typing, effect rows, handlers, masks, and grades.
 - Documentation: added a comparative beginner tutorial and tightened standard-library and compiler guidance.
 
-## 0.15.0
+## 0.15.0 - Turquoise
 
 - Self-hosted front end: the lexer, interpolation, and layout are also Prism modules, differentially checked against the compiler's.
 - Lexical faults: the Prism lexer refuses bad escapes, holes, strings, and digit separators at byte-exact offsets.
@@ -211,7 +286,7 @@
 - Packaging: dropped the Alpine `.apk`, which was glibc-linked and could not run on musl; the container image serves that platform.
 - Internals: reorganized the compiler into a bottom-up Cargo workspace beneath the driver, preserving the former module paths.
 
-## 0.14.0
+## 0.14.0 - Teal
 
 - Determinism: centralized compiler inputs and made parallel builds hash-stable.
 - Typed Core: removed the erased optimizer; all middle-end passes now use checked Core.
@@ -230,7 +305,7 @@
 - Examples: added System F, recursion-scheme, fold, and optics examples.
 - Documentation: added design principles and an assurance matrix; corrected compiler docs.
 
-## 0.13.0
+## 0.13.0 - Emerald
 
 - Contracts: added `logic fn`, `requires`, and `ensures`, discharged through an external SMT solver by `prism verify` as honest solver-oracle receipts.
 - Totality: added checked `total fn`, explicit `assume total fn`, and a `decreases` ranking clause, with honest pending results for unsupported proofs.
@@ -245,7 +320,7 @@
 - Documentation: documented the v0.13 surface with checked examples, ordered the standard-library reference, renamed the always-on module Base, and removed the bit-rotted in-browser REPL.
 - Semantics: added an unverified Typst sketch of the Core terms and types.
 
-## 0.12.0
+## 0.12.0 - Viridian
 
 - Typed Core: moved the back end onto witness-carrying Core with independent verification after every transformation.
 - Semantic patches: added digest-pinned patch judging through the CLI and a JSON-lines service protocol.
@@ -258,7 +333,7 @@
 - Documentation: added stable type spans, hoverable examples, stronger doctests, and checked standard-library examples.
 - Verification: made typed effect lowering authoritative and added optimizer-equivalence gates across configurations.
 
-## 0.11.0
+## 0.11.0 - Jade
 
 - Checked HIR: the high-level intermediate representation between typechecking and elaboration now carries every per-node fact in one dense artifact read through a boundary that a lint pass proof-checks, so elaboration re-derives nothing and an inconsistent fact is caught before use. `dump hir` prints it.
 - Incremental compilation: checking is now a content-addressed query over persisted module interfaces and checked bodies. An implementation-only edit keeps an interface's digest stable and never re-checks its importers, so compile time tracks the semantic change rather than the size of the codebase.
@@ -272,7 +347,7 @@
 - Web: the playground gained a Godbolt-style "Show IR" view pairing checked HIR over Core.
 - Internals: the formatter and error modules were split into focused files, the checked HIR gained committed byte goldens, and fast development gates (`just gate-dev`, changed-file routing) landed beside the authoritative cold gate.
 
-## 0.10.0
+## 0.10.0 - Malachite
 
 - Effects: grades are now `never`, `once`, and `many`; retired grade words are identifiers again. Comprehensions fully discharge internal effects, and the unused CEK spike is gone.
 - Surface syntax: a return annotation now writes its effect row after the result type (`: Int ! {Exn}`, with `: Int !` for an explicit empty row), and a multishot handler clause names its continuation after `resume` (`op(params) resume k => ...`) instead of trailing it as a parameter.
@@ -292,7 +367,7 @@
 - Backend API: the shared `Isa` interface and generic emitter are public for out-of-tree experimental backends.
 - Internals: added validated store hashes, typed resolver identities, named builtin ABI modes, effect-lowering mode enums, format-preserving manifest edits, leaner fixtures, broader CI
 
-## 0.9.0
+## 0.9.0 - Verdigris
 
 - Coeffects: added postfix usage rows, with ten reserved facts in canonical hash order. `@ noalloc` is the first checked fact and replaces the former allocation syntax.
 - Lineage: builds, runs, docs, and world timelines now share one typed, digest-addressed graph format with common rendering, verification, and diffing.
@@ -316,7 +391,7 @@
 - Soundness: row variables can no longer escape into a rigid row bound by an inner `forall`; malformed pattern views now report diagnostics instead of panicking.
 - Native metadata: continuation frame instrumentation is opt-in, while content identity tables remain available to native builds.
 
-## 0.8.0
+## 0.8.0 - Chartreuse
 
 - Package world: package universes are now reported by digest and gated in CI. The first gate is deliberately typecheck-only.
 - Web gallery: added the schedule-map resident and tightened same-origin teleport. Receivers now handshake by identity and code hash before resuming; the interface is explicitly same-origin and does not provide cross-origin mobility.
@@ -331,7 +406,7 @@
 - Runtime plumbing: continuation code moved into its own runtime module, source probes gained their runtime gate, and the prelude has a message-carrying fatal hook.
 - Compiler diagnostics: allocation checking now reports concrete witnesses for fresh constructors, uncertified callees, allocating primitives, indirect calls, and fresh closures.
 
-## 0.7.0
+## 0.7.0 - Saffron
 
 - Mobility: suspend and resume a running program. `prism suspend --at N` pauses a run after N machine steps and writes the whole live continuation, its frame stack, its pending work, and every bound value, to a `kont` envelope; `prism resume` decodes it and runs to completion. The suspending run's output followed by the resuming run's output is byte-identical to one uninterrupted run. The envelope carries the program's namespace root as a bundle digest, so a continuation refuses to resume against code it was not captured in, and the same interpreter compiled to WebAssembly moves a running program between same-origin browser contexts, each re-verifying the bundle by hash.
 - Types: a `Nat` kind for type-level dimensions. A parameter annotated `: Nat` ranges over compile-time natural numbers, so `Vec(a, n : Nat)` in `Data/Vec` carries an erased length index; dimensions unify by equality only, a length mismatch is a compile error naming both lengths, and there is deliberately no arithmetic on dimensions. An unannotated parameter still defaults to kind `Type`.
@@ -349,7 +424,7 @@
 - Runtime: the monolithic C runtime is split into focused, independently warning-clean modules behind `prism_internal.h`, `prism_int`, `prism_float`, `prism_string`, `prism_array`, `prism_sort`, `prism_io`, `prism_mem`, and `prism_effect`, each held to the same `-Werror` and clang-tidy bar.
 - Web: branching timelines. A simulation's full state is snapshotted, scrubbed to any frame by replay, and forked to continue a perturbed run as a pure function of the state and the step count, served beside the playground with a live content-address viewer.
 
-## 0.6.0
+## 0.6.0 - Ochre
 
 - Deriving: structural `Serialize`, `Stable`, `Hash`, and `Arbitrary` instances, a rounded-out `Ord`, and `Identifiable` (an identity starter pack expanding to `Eq`, `Ord`, `Hash`, and `Show`). `Hash` falls out of the content-addressing fold rather than a hand-written instance.
 - Serialization: a `stable` block, the release's one new language surface, freezes a type's versioned rungs with generated up/downgrade converters and a per-rung shape-digest golden, so editing a frozen rung is a compile error. It rides a pure, total wire codec (`lib/std/Wire.pr`) with a digest-checked envelope, an adjacent-version ladder, and a property-tested roundtrip. Opt-in; transport is a capability.
@@ -371,7 +446,7 @@
 - Fixes: guarded-arm native codegen, the re-enabled native `Ord` sort kernel, and a same-named-module import that resolved to the importing file itself on a case-insensitive filesystem.
 - Tooling: a Nix flake for a reproducible dev shell and build.
 
-## 0.5.0
+## 0.5.0 - Amber
 
 - Types: row-kinded type parameters. A kind system (`Type`, `Row`, `Fun`) lets a type parameter range over effect rows (`type Cmd(a, e : Row)`); an unannotated parameter defaults to kind `Type`, so existing code is unchanged. With a Koka/Frank-style ambient-row discipline for effect operations, this makes effect-polymorphic handlers sound.
 - Show: `show` is now a real typeclass method (`show : (a) -> String`) dispatched through the instance dictionary, not the type-directed compile-time generator it used to be. `deriving (Show)` produces the canonical structural instance: a record constructor prints with its field names (`T { f = v }`), a positional one prints `Name(v, ...)`, a nullary one its bare name, and a nested `String` renders quoted and escaped. Primitives (including `Unit`), `List`, `Option`, and `Result` carry instances, and a tuple gets a compiler-synthesized `Show` dictionary assembled from its components' instances. The `print`/`println` and string-interpolation renderer stays a separate total printer (an unresolved type falls back to the integer printer rather than demanding an instance) that inserts a top-level string raw, so `{x}` splices the string verbatim while `show(x)` quotes it; the derived instance and this printer are kept in lockstep by a consistency gate.
@@ -391,7 +466,7 @@
 - CLI: the environment knobs that tuned the optimizer and effect backends are now one canonical `DynFlags` set, read once at startup and threaded into the compiler instead of sampled deep inside individual passes. Each is also a CLI flag: `--no-native-effects`, `--no-trampoline`, `--core-lint`, `--opt-stats`, and `--dump-core SINK`, alongside the existing env vars.
 - Internals: the experimental meta-continuation CEK effect backend is fenced behind a `cek-spike` cargo feature (off by default), so the path that is not yet validated against masking cannot be selected in a release build. The effect lowerer's two mutually-exclusive resume-reification modes are unified into a single enum, so a clause can no longer emit two encodings.
 
-## 0.4.0
+## 0.4.0 - Rust
 
 - Runtime: an optional structural backstop for the native runtime, built with `-DPRISM_RT_DEBUG`. Every cell dereference asserts a non-null, aligned, live heap pointer and every field read an in-bounds index, aborting with a diagnostic on a codegen or refcount bug instead of corrupting memory. It compiles out by default at zero overhead, needs no sanitizer toolchain, and a new CI step re-runs the parity corpus under it.
 - Effects: the effect-lowering fast-path matchers now surface drift in release builds. A matcher that accepts a clause but finds its continuation-erasure post-condition violated still falls back to the correct non-fused lowering, but prints a one-time stderr warning, silenced by `PRISM_QUIET`, instead of degrading silently. Debug builds keep the loud assertion.
@@ -408,7 +483,7 @@
 - Effects: console output is now an interceptable capability, so a durable resume no longer re-prints work it already did. `print`/`println` perform a new `Output` effect, discharged to the real printer by `run_io`, dropped by `replay`, and replayed-then-performed-once by `durable`. The routing is scoped to programs that `import Replay`; everywhere else `print`/`println` keep their `! {IO}` row, and `eprint`/`eprintln` and the file builtins stay `! {IO}`.
 - Dependencies: `toml` 0.8 to 1.1, `wasm-bindgen` 0.2.125 to 0.2.126, `rustyline` 18.0.0 to 18.0.1, and `actions/checkout` 6 to 7.
 
-## 0.3.0
+## 0.3.0 - Vermilion
 
 - New surface syntax, every form sugar over the existing core:
 
@@ -442,7 +517,7 @@
 - The Lean core model (`models/`) grows from a substitution small-step into a mechanized CEK machine proved to implement a big-step semantics, with unique normal forms, a progress trichotomy, and effect progress/unhandled lemmas, all `sorry`-free over `propext`/`Quot.sound`. It runs as a third differential oracle via a new `prism dump core-json` phase, checked against the interpreter across a fixture corpus.
 - Hardening: the bignum allocator is overflow-checked like every cell, each builtin's calling convention is derived from an exhaustive `Builtin` method (so a new builtin cannot ship without declaring its ABI), and the reference grammar is single-sourced in `models/grammar.ebnf`, sliced into the spec by mdbook anchors.
 
-## 0.2.0
+## 0.2.0 - Garnet
 
 - Fixed-width bitwise and shift builtins on the I64/U64 lanes: `i64_and`/`i64_or`/`i64_xor`/`i64_shl`/`i64_shr` and their `u64_*` counterparts. and/or/xor share one bit pattern across lanes; `i64_shr` is arithmetic, `u64_shr` logical; shift counts are taken modulo 64.
 - `system(String) -> Int` runs a shell command and returns its exit code, and `eprint`/`eprintln` write to stderr, so a program can drive external tools and emit diagnostics off the stdout stream.
@@ -464,7 +539,7 @@
 - The `fip` bounded-stack rejection now explains when a function joins the tail-recursion group only because another function flows as a first-class value (a capture) rather than through a direct call cycle, pointing at the fix (call directly or annotate `fbip`). The set of accepted programs is unchanged; only the diagnostic is sharper.
 - Rank-N polymorphism is predicative: a `forall` written directly as a type-constructor argument (`List(forall a. (a) -> a)`) is now rejected at the annotation with a clear "impredicative type" message naming the constructor, instead of surfacing later as a confusing `expected a, got Int` mismatch from a leaked rigid variable. Higher-rank types remain available as function parameters, results, and declared data fields (a polymorphic field carries a `forall` through a generic container).
 
-## 0.1.0
+## 0.1.0 - Opal
 
 Initial release.
 
