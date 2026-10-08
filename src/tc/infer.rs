@@ -296,19 +296,26 @@ impl Tc<'_> {
         let elem_i = kinds.iter().position(|k| *k == Kind::Type)?;
         let nat_i = kinds.iter().position(|k| *k == Kind::Nat)?;
         let ctor = Sym::from(info.ctors[0].as_str());
-        // The representation has to be a single list field, or the element chain has
-        // nowhere to go. The count is taken from `args`, which holds every field type
-        // whether the constructor declares them positionally or by name, whereas
-        // `fields` names only the latter and is empty for `MkVec(List(a))`. The list
-        // head is compared by its bare name so that a field type resolves the same
-        // however the declaring module spelled the import. Which element type that
-        // list holds is deliberately not re-derived: the field type mentions the
-        // declaration's own parameter, and the arm beside this one has already
-        // checked the elements against the expected element type.
+        // The representation has to be a single field which is a list *of the element
+        // parameter itself*. Requiring only a list of something is not enough: a
+        // declaration whose lone field were `List(Int)` under a phantom element
+        // parameter would let a literal of booleans check in a `Foo(Bool, n)`
+        // position and then build a value whose field holds integers, since the arm
+        // beside this one proves the elements against the argument the caller wrote
+        // rather than against what the field declares. The count is taken from
+        // `args`, which holds every field type whether the constructor declares them
+        // positionally or by name, whereas `fields` names only the latter and is empty
+        // for `MkVec(List(a))`. The list head is compared by its bare name so that a
+        // field type resolves the same however the declaring module spelled the
+        // import.
         let ci = self.ctors.get(ctor.as_str())?;
+        let elem_param = ci.params.get(elem_i)?;
         if ci.args.len() != 1
             || !matches!(&ci.args[0], Type::Con(n, a)
-                if names::bare_name(n.as_str()) == LIST && a.len() == 1)
+                if names::bare_name(n.as_str()) == LIST
+                    && a.len() == 1
+                    && matches!(&a[0], Type::Var(v)
+                        if names::bare_name(v.as_str()) == names::bare_name(elem_param.as_str())))
         {
             return None;
         }

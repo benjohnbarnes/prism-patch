@@ -144,3 +144,28 @@ fn main() = println(show(vto_list(three())))
 ";
     assert_eq!(output(prog), "[1, 2, 3]\n");
 }
+
+// The rule reaches any type whose kinds are one element and one dimension, not
+// just the library's vector, because it reads the declaration rather than a name.
+#[test]
+fn a_user_declared_shape_indexed_type_gets_the_form_too() {
+    accepts(
+        "type Grid(a, n : Nat) = MkGrid(List(a))\n\nfn takes(v : Grid(Int, 3)) : Int = 0\nfn use() : Int = takes([1, 2, 3])\n",
+    );
+}
+
+// But the field has to be a list of the element parameter itself, not a list of
+// anything. Otherwise a declaration whose lone field is `List(Int)` under a phantom
+// element parameter would let a literal of booleans check in a `Foo(Bool, n)`
+// position, and elaboration would then build a value whose field holds integers —
+// a representation the type does not describe.
+#[test]
+fn a_field_listing_something_other_than_the_element_is_not_shape_indexed() {
+    let msg = rejection(
+        "type Foo(a, n : Nat) = MkFoo(List(Int))\n\nfn takes(v : Foo(Bool, 3)) : Int = 0\nfn use() : Int = takes([true, false, true])\n",
+    );
+    assert!(
+        msg.contains("mismatch"),
+        "a field listing another type should not make a type shape-indexed, got: {msg}"
+    );
+}
