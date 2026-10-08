@@ -309,6 +309,16 @@ impl Tc<'_> {
         // field type resolves the same however the declaring module spelled the
         // import.
         let ci = self.ctors.get(ctor.as_str())?;
+        // The constructor's parameters are parallel to the type's declared ones, so
+        // `elem_i` indexes both. Asserted rather than left implicit: if that alignment
+        // ever broke, the lookup below would silently retire the form for every type
+        // using it, and the reason would be invisible. A debug build running the
+        // language suite therefore checks the assumption on every shape-indexed type it
+        // sees, here and in the run at the end of the suite.
+        debug_assert!(
+            elem_i < ci.params.len(),
+            "shape-indexed constructor parameters are not parallel to the type's"
+        );
         let elem_param = ci.params.get(elem_i)?;
         if ci.args.len() != 1
             || !matches!(&ci.args[0], Type::Con(n, a)
