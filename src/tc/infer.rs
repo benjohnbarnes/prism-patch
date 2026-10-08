@@ -16,7 +16,7 @@ use crate::names;
 use crate::sym::Sym;
 use crate::syntax::ast::{self, Core, Expr, Grade, HandlerArm, HandlerMode, NodeId, S};
 use crate::syntax::desugar::referenced_names;
-use crate::types::ty::{EffRow, Label, Type, LIST, NUM_CLASS, SHOW_CLASS};
+use crate::types::ty::{EffRow, Kind, Label, Type, LIST, NUM_CLASS, SHOW_CLASS};
 use crate::types::EffOpInfo;
 use crate::wired::Indexable;
 
@@ -273,6 +273,48 @@ impl Tc<'_> {
         handled
     }
 
+    /// The constructor a list literal should build when its expected type is
+    /// shape-indexed, as `(element position, dimension position, constructor)`.
+    ///
+    /// The type is recognised by its declared kind rather than by name, so `Vec`,
+    /// an arity-gated group of our own and any user's `Grid(a, n)` behave alike.
+    /// The shape has to be unambiguous for the literal form to be offered at all:
+    /// exactly one element parameter and exactly one dimension, and a single
+    /// constructor taking a single list field, which is what lets elaboration
+    /// build the value by wrapping the element chain it already produced.
+    fn shape_indexed_ctor(&self, head: &Sym, args: &[Type]) -> Option<(usize, usize, Sym)> {
+        let info = self.data.get(head.as_str())?;
+        let kinds = info.param_kinds();
+        if kinds.len() != 2 || args.len() != 2 || info.ctors.len() != 1 {
+            return None;
+        }
+        if kinds.iter().filter(|k| **k == Kind::Type).count() != 1
+            || kinds.iter().filter(|k| **k == Kind::Nat).count() != 1
+        {
+            return None;
+        }
+        let elem_i = kinds.iter().position(|k| *k == Kind::Type)?;
+        let nat_i = kinds.iter().position(|k| *k == Kind::Nat)?;
+        let ctor = Sym::from(info.ctors[0].as_str());
+        // The representation has to be a single list field, or the element chain has
+        // nowhere to go. The count is taken from `args`, which holds every field type
+        // whether the constructor declares them positionally or by name, whereas
+        // `fields` names only the latter and is empty for `MkVec(List(a))`. The list
+        // head is compared by its bare name so that a field type resolves the same
+        // however the declaring module spelled the import. Which element type that
+        // list holds is deliberately not re-derived: the field type mentions the
+        // declaration's own parameter, and the arm beside this one has already
+        // checked the elements against the expected element type.
+        let ci = self.ctors.get(ctor.as_str())?;
+        if ci.args.len() != 1
+            || !matches!(&ci.args[0], Type::Con(n, a)
+                if names::bare_name(n.as_str()) == LIST && a.len() == 1)
+        {
+            return None;
+        }
+        Some((elem_i, nat_i, ctor))
+    }
+
     fn check(&mut self, env: &Env, e: &S<Expr<Core>>, ty: &Type) -> Result<(), TypeError> {
         self.with_tooltip_row(e.id, e.span, |tc| tc.check_node(env, e, ty))
     }
@@ -442,6 +484,41 @@ impl Tc<'_> {
                     let t = self.apply(t);
                     self.check(env, elem, &t)?;
                 }
+                Ok(())
+            }
+            // A list literal against a shape-indexed expected type takes its length
+            // from the literal's own element count, so `[1, 2, 3]` in a `Vec(Int, 3)`
+            // position is a length-3 vector with no construction function in sight.
+            // It descends from the tuple arm above, which takes an arity from its
+            // shape, and from the `Float` adoption below, which lets an expected type
+            // steer a literal. Nothing is specific to `Vec`: any type whose declared
+            // kinds are one element and one dimension qualifies, which is what keeps
+            // an arity-gated group of our own inside the rule.
+            (Expr::List(elems), Type::Con(head, args))
+                if self.shape_indexed_ctor(head, args).is_some() =>
+            {
+                let (elem_i, nat_i, ctor) =
+                    self.shape_indexed_ctor(head, args).expect("guarded above");
+                let elem_ty = self.apply(&args[elem_i]);
+                for elem in elems {
+                    self.check(env, elem, &elem_ty)?;
+                }
+                // The dimension is unified rather than merely compared, so a literal
+                // against a variable length solves it, a clash names both lengths in
+                // the wording dimension unification already uses, and a rigid
+                // dimension is refused rather than forced.
+                let want = self.apply(&args[nat_i]);
+                let got = Type::Nat(u64::try_from(elems.len()).unwrap_or(u64::MAX));
+                self.subtype(&got, &want).map_err(|e| {
+                    e.or(TypeError::TypeMismatch {
+                        span,
+                        expected: want.show(),
+                        found: got.show(),
+                    })
+                })?;
+                // Elaboration cannot see the expected type, so the constructor it
+                // must wrap the element chain in is recorded against this node.
+                self.shape_indexed.insert(id, ctor);
                 Ok(())
             }
             // A list literal against a known `List(T)` pushes `T` into each

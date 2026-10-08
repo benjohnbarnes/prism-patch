@@ -127,6 +127,7 @@ pub fn lint_hir(hir: &CheckedHir<'_>) -> Vec<HirViolation> {
                     push(&mut out, i, msg);
                 }
             }
+            Some(NodeRes::ShapeIndexed(_)) => {}
             Some(NodeRes::UnboxedField(idx, arity)) => {
                 if idx >= arity {
                     push(
