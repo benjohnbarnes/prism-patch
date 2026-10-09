@@ -145,12 +145,20 @@ fn main() = println(show(vto_list(three())))
     assert_eq!(output(prog), "[1, 2, 3]\n");
 }
 
-// The rule reaches any type whose kinds are one element and one dimension, not
-// just the library's vector, because it reads the declaration rather than a name.
+// But the rule is about `Vec` and nothing else. A user's own `Grid(a, n : Nat)` has
+// exactly the same shape, and its `Nat` is equally untied to the list — so offering
+// it the form would promise a check that does not exist: `MkGrid` stays visible, so
+// `MkGrid([1])` passes for a `Grid(Int, 3)` with or without the rule. `Vec` is the
+// one type where the offer is worth making, because sealing its constructor is what
+// makes the literal the only route and the count the only check.
 #[test]
-fn a_user_declared_shape_indexed_type_gets_the_form_too() {
-    accepts(
+fn a_user_declared_type_is_not_offered_the_form() {
+    let msg = rejection(
         "type Grid(a, n : Nat) = MkGrid(List(a))\n\nfn takes(v : Grid(Int, 3)) : Int = 0\nfn use() : Int = takes([1, 2, 3])\n",
+    );
+    assert!(
+        msg.contains("mismatch"),
+        "a user's own type should not be offered the form, got: {msg}"
     );
 }
 

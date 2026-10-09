@@ -18,7 +18,7 @@ use crate::syntax::ast::{self, Core, Expr, Grade, HandlerArm, HandlerMode, NodeI
 use crate::syntax::desugar::referenced_names;
 use crate::types::ty::{EffRow, Kind, Label, Type, LIST, NUM_CLASS, SHOW_CLASS};
 use crate::types::EffOpInfo;
-use crate::wired::Indexable;
+use crate::wired::{self, Indexable};
 
 // Red zone / segment size for the checker's per-node recursion, matching the
 // desugar and typed-Core-builder guards.
@@ -273,62 +273,46 @@ impl Tc<'_> {
         handled
     }
 
-    /// The constructor a list literal should build when its expected type is
-    /// shape-indexed, as `(element position, dimension position, constructor)`.
+    /// The constructor a list literal should build when its expected type is the
+    /// standard library's vector, as `(element position, dimension position,
+    /// constructor)`, or `None` for every other type.
     ///
-    /// The type is recognised by its declared kind rather than by name, so `Vec`,
-    /// an arity-gated group of our own and any user's `Grid(a, n)` behave alike.
-    /// The shape has to be unambiguous for the literal form to be offered at all:
-    /// exactly one element parameter and exactly one dimension, and a single
-    /// constructor taking a single list field, which is what lets elaboration
-    /// build the value by wrapping the element chain it already produced.
+    /// **This is `Data.Vec.Vec` and nothing else, deliberately.** A dimension is an
+    /// erased phantom, so no criterion can tell a `Nat` that measures a container
+    /// from one that means something else. Recognising a type by its declared kinds
+    /// — which an earlier version of this did — offers the form to any declaration
+    /// with a `Nat` in it, whatever its author meant by it, and it cannot check the
+    /// value it builds either.
+    ///
+    /// `Vec` is the one type where the offer is worth making, because `MkVec` is
+    /// `opaque` and pinned hidden by `stdlib_invariant_constructors_are_hidden`, so
+    /// outside its module a literal is the *only* route to a value and the count it
+    /// carries is the only thing holding the length honest. A user's own
+    /// `Grid(a, n : Nat)` has the same shape but keeps its constructor visible, so
+    /// nothing is checked there either way and the form would only appear to
+    /// promise something.
+    ///
+    /// A general mechanism would be additive rather than a widening of this: a class
+    /// a type conforms to, as Swift's builder conformance works, with `Vec` as its
+    /// first instance.
     fn shape_indexed_ctor(&self, head: &Sym, args: &[Type]) -> Option<(usize, usize, Sym)> {
+        if head.as_str() != wired::TY_VEC || args.len() != 2 {
+            return None;
+        }
+        // A sanity check on a type whose declaration is known rather than a way of
+        // recognising it: `Vec` has one constructor, and the form is retired rather
+        // than guessed if that ever stops being true. The positions below are the
+        // library's declaration order — element first, dimension second — and are
+        // read from the kinds rather than assumed, so a re-declaration that swapped
+        // them retires the form instead of misreading it.
         let info = self.data.get(head.as_str())?;
+        if info.ctors.len() != 1 {
+            return None;
+        }
         let kinds = info.param_kinds();
-        if kinds.len() != 2 || args.len() != 2 || info.ctors.len() != 1 {
-            return None;
-        }
-        if kinds.iter().filter(|k| **k == Kind::Type).count() != 1
-            || kinds.iter().filter(|k| **k == Kind::Nat).count() != 1
-        {
-            return None;
-        }
         let elem_i = kinds.iter().position(|k| *k == Kind::Type)?;
         let nat_i = kinds.iter().position(|k| *k == Kind::Nat)?;
         let ctor = Sym::from(info.ctors[0].as_str());
-        // The representation has to be a single field which is a list *of the element
-        // parameter itself*. Requiring only a list of something is not enough: a
-        // declaration whose lone field were `List(Int)` under a phantom element
-        // parameter would let a literal of booleans check in a `Foo(Bool, n)`
-        // position and then build a value whose field holds integers, since the arm
-        // beside this one proves the elements against the argument the caller wrote
-        // rather than against what the field declares. The count is taken from
-        // `args`, which holds every field type whether the constructor declares them
-        // positionally or by name, whereas `fields` names only the latter and is empty
-        // for `MkVec(List(a))`. The list head is compared by its bare name so that a
-        // field type resolves the same however the declaring module spelled the
-        // import.
-        let ci = self.ctors.get(ctor.as_str())?;
-        // The constructor's parameters are parallel to the type's declared ones, so
-        // `elem_i` indexes both. Asserted rather than left implicit: if that alignment
-        // ever broke, the lookup below would silently retire the form for every type
-        // using it, and the reason would be invisible. A debug build running the
-        // language suite therefore checks the assumption on every shape-indexed type it
-        // sees, here and in the run at the end of the suite.
-        debug_assert!(
-            elem_i < ci.params.len(),
-            "shape-indexed constructor parameters are not parallel to the type's"
-        );
-        let elem_param = ci.params.get(elem_i)?;
-        if ci.args.len() != 1
-            || !matches!(&ci.args[0], Type::Con(n, a)
-                if names::bare_name(n.as_str()) == LIST
-                    && a.len() == 1
-                    && matches!(&a[0], Type::Var(v)
-                        if names::bare_name(v.as_str()) == names::bare_name(elem_param.as_str())))
-        {
-            return None;
-        }
         Some((elem_i, nat_i, ctor))
     }
 
@@ -503,14 +487,12 @@ impl Tc<'_> {
                 }
                 Ok(())
             }
-            // A list literal against a shape-indexed expected type takes its length
-            // from the literal's own element count, so `[1, 2, 3]` in a `Vec(Int, 3)`
-            // position is a length-3 vector with no construction function in sight.
-            // It descends from the tuple arm above, which takes an arity from its
-            // shape, and from the `Float` adoption below, which lets an expected type
-            // steer a literal. Nothing is specific to `Vec`: any type whose declared
-            // kinds are one element and one dimension qualifies, which is what keeps
-            // an arity-gated group of our own inside the rule.
+            // A list literal against `Vec` takes its length from the literal's own
+            // element count, so `[1, 2, 3]` in a `Vec(Int, 3)` position is a
+            // length-3 vector with no construction function in sight. It descends
+            // from the tuple arm above, which takes an arity from its shape, and
+            // from the `Float` adoption below, which lets an expected type steer a
+            // literal. The predicate says why this is `Vec` alone.
             (Expr::List(elems), Type::Con(head, args))
                 if self.shape_indexed_ctor(head, args).is_some() =>
             {
