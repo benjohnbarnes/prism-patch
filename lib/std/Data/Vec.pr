@@ -13,6 +13,10 @@
 -- whose length is a variable solves that variable. The constructor below is an
 -- implementation detail of that spelling and is not exported.
 --
+-- The expected type is what supplies the length, so a literal has to be written
+-- where that type is already known. `let v = [1, 2, 3]` infers a `List`, and
+-- passing `v` where a `Vec(Int, 3)` is wanted is a `List` against `Vec` mismatch.
+--
 -- This module ships the operations that equality-only indexing can type honestly:
 --
 --   - `vempty` and `vsingle` pin a literal length (`0`, `1`), though a literal is

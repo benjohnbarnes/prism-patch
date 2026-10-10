@@ -1,14 +1,9 @@
-// A list literal constructs a shape-indexed type. Its length comes from the
-// literal's own element count rather than from a construction function, so
-// `[1, 2, 3]` fills a `Vec(Int, 3)` position and a literal whose count disagrees
-// is refused naming both lengths.
-//
-// The rule is the arithmetic of three the tower already had: a bare `1` adopting
-// a `Float` context, a list literal pushing its lane into `List(T)`, and a tuple
-// taking its arity from its own shape. It is checked here beside them, and the
-// runtime case is kept as a test rather than a probe because the property it
-// exercises — that the literal builds the constructor the type declares — is the
-// one a checking-only change would quietly get wrong.
+// A list literal constructs a shape-indexed type: its length comes from the
+// literal's own element count, so `[1, 2, 3]` fills a `Vec(Int, 3)` position and a
+// count that disagrees is refused naming both lengths. The runtime case below is a
+// test rather than a probe because the property it exercises — that the literal
+// builds the constructor the type declares — is what a checking-only change would
+// get wrong.
 
 use prism::{check, interpret, with_prelude};
 use rstest::rstest;
@@ -98,6 +93,26 @@ fn f(v : Vec(Int, n)) : Vec(Int, n) = [1, 2, 3]
     assert!(
         msg.contains("mismatch"),
         "a literal against a rigid length should be refused, got: {msg}"
+    );
+}
+
+// The rule needs the expected type at the literal's own site, so a literal bound
+// first is a `List` and stays one: inference gives `v` its type, not the position
+// `v` later reaches. Pinned as a test so the limitation cannot drift unnoticed.
+#[test]
+fn a_literal_bound_before_its_position_is_inferred_as_a_list() {
+    let msg = rejection(
+        r"import Data.Vec (..)
+
+fn takes3(v : Vec(Int, 3)) : Int = 0
+fn use() : Int =
+  let v = [1, 2, 3]
+  takes3(v)
+",
+    );
+    assert!(
+        msg.contains("mismatch"),
+        "a let-bound literal should be inferred as a list, got: {msg}"
     );
 }
 
